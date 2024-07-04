@@ -1,5 +1,10 @@
 fn main() {
-    engine::launch(App);
+    engine::launch(
+        App,
+        engine::LaunchSettings {
+            window_title: "Spectral Engine - Template".to_string(),
+        },
+    );
 }
 
 #[derive(Default)]

@@ -15,7 +15,12 @@ pub trait State {
     fn update(&mut self, _engine_context: &mut Context, _ui_context: &egui::Context);
 }
 
-pub fn launch(state: impl State + 'static) {
+#[derive(Default)]
+pub struct LaunchSettings {
+    pub window_title: String,
+}
+
+pub fn launch(state: impl State + 'static, settings: LaunchSettings) {
     let event_loop = winit::event_loop::EventLoopBuilder::with_user_event()
         .build()
         .expect("Failed to create event loop");
@@ -23,7 +28,7 @@ pub fn launch(state: impl State + 'static) {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        window_builder = window_builder.with_title("Spectral Engine");
+        window_builder = window_builder.with_title(&settings.window_title);
     }
 
     #[cfg(target_arch = "wasm32")]

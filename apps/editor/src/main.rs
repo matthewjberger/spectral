@@ -1,11 +1,16 @@
 fn main() {
-    engine::launch(App);
+    engine::launch(
+        Editor,
+        engine::LaunchSettings {
+            window_title: "Spectral Engine".to_string(),
+        },
+    );
 }
 
 #[derive(Default)]
-pub struct App;
+pub struct Editor;
 
-impl engine::State for App {
+impl engine::State for Editor {
     fn update(
         &mut self,
         _engine_context: &mut engine::Context,
