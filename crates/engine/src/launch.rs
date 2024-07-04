@@ -9,7 +9,9 @@ use wasm_bindgen::prelude::*;
 
 /// Data shared between engine and application layers
 #[derive(Default)]
-pub struct Context {}
+pub struct Context {
+    pub world: crate::world::World,
+}
 
 pub trait State {
     fn update(&mut self, _engine_context: &mut Context, _ui_context: &egui::Context);

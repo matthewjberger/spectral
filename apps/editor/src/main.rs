@@ -13,7 +13,7 @@ pub struct Editor;
 impl engine::State for Editor {
     fn update(
         &mut self,
-        _engine_context: &mut engine::Context,
+        _engine_context: &mut engine::LaunchContext,
         ui_context: &engine::egui::Context,
     ) {
         #[cfg(not(target_arch = "wasm32"))]

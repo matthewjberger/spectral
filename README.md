@@ -1,4 +1,4 @@
-# Rust / Wasm / Wgpu Triangle
+# Spectral Game Engine
 
 This project is a 3D game engine written with [rust](https://www.rust-lang.org/)
 using [wgpu](https://wgpu.rs/) that runs on Linux/Windows/MacOS/Wasm.
