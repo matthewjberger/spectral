@@ -13,8 +13,9 @@ pub struct Context {
     pub world: crate::world::World,
 }
 
+#[async_trait::async_trait]
 pub trait State {
-    fn update(&mut self, _engine_context: &mut Context, _ui_context: &egui::Context);
+    async fn update(&mut self, _engine_context: &mut Context, _ui_context: &egui::Context);
 }
 
 #[derive(Default)]
@@ -150,7 +151,19 @@ async fn run_app(
                             let gui_input = gui_state.take_egui_input(&window);
                             gui_state.egui_ctx().begin_frame(gui_input);
 
-                            app.update(&mut app_context, gui_state.egui_ctx());
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                pollster::block_on(
+                                    app.update(&mut app_context, gui_state.egui_ctx()),
+                                );
+                            }
+
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                wasm_bindgen_futures::spawn_local(
+                                    app.update(&mut app_context, gui_state.egui_ctx()),
+                                );
+                            }
 
                             let egui::FullOutput {
                                 textures_delta,

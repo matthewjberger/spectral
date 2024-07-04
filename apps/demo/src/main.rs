@@ -10,8 +10,9 @@ fn main() {
 #[derive(Default)]
 pub struct Demo;
 
+#[async_trait::async_trait]
 impl engine::State for Demo {
-    fn update(
+    async fn update(
         &mut self,
         _engine_context: &mut engine::LaunchContext,
         ui_context: &engine::egui::Context,
