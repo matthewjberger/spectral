@@ -7,20 +7,9 @@ pub use web_time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-#[derive(Default, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum EngineMessage {
-    #[default]
-    Empty,
-}
-
-pub type EngineBroker = crate::broker::Broker<EngineMessage>;
-
-#[allow(dead_code)]
-pub type EngineClient = crate::broker::Client<EngineMessage>;
-
 #[derive(Default)]
 pub struct EngineContext {
-    pub broker: EngineBroker,
+    pub broker: crate::message::EngineBrokerHandle,
     pub world: crate::world::World,
 }
 
@@ -34,7 +23,7 @@ pub struct LaunchSettings {
     pub window_title: String,
 }
 
-pub fn launch(state: impl State + 'static, _settings: LaunchSettings) {
+pub fn start(state: impl State + 'static, _settings: LaunchSettings) {
     let event_loop = winit::event_loop::EventLoopBuilder::with_user_event()
         .build()
         .expect("Failed to create event loop");
@@ -66,21 +55,21 @@ pub fn launch(state: impl State + 'static, _settings: LaunchSettings) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();
-        pollster::block_on(run_app(event_loop, window, state));
+        pollster::block_on(run(event_loop, window, state));
     }
 
     #[cfg(target_arch = "wasm32")]
     {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
         console_log::init().expect("could not initialize logger");
-        wasm_bindgen_futures::spawn_local(run_app(event_loop, window, state));
+        wasm_bindgen_futures::spawn_local(run(event_loop, window, state));
     }
 }
 
-async fn run_app(
+async fn run(
     event_loop: winit::event_loop::EventLoop<()>,
     window: winit::window::Window,
-    mut app: impl State + 'static,
+    mut state: impl State + 'static,
 ) {
     let window = std::sync::Arc::new(window);
 
@@ -107,9 +96,20 @@ async fn run_app(
 
     let mut renderer = crate::renderer::Renderer::new(window.clone(), width, height).await;
 
-    let mut app_context = EngineContext::default();
+    let mut engine_context = EngineContext::default();
 
     let mut last_render_time = Instant::now();
+
+    let broker_handle = engine_context.broker.clone();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        async_std::task::spawn(crate::message::message_task(broker_handle));
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        wasm_bindgen_futures::spawn_local(crate::message::message_task(broker_handle));
+    }
 
     event_loop
         .run(move |event, elwt| {
@@ -165,14 +165,14 @@ async fn run_app(
                             #[cfg(not(target_arch = "wasm32"))]
                             {
                                 pollster::block_on(
-                                    app.update(&mut app_context, gui_state.egui_ctx()),
+                                    state.update(&mut engine_context, gui_state.egui_ctx()),
                                 );
                             }
 
                             #[cfg(target_arch = "wasm32")]
                             {
                                 wasm_bindgen_futures::spawn_local(
-                                    app.update(&mut app_context, gui_state.egui_ctx()),
+                                    state.update(&mut engine_context, gui_state.egui_ctx()),
                                 );
                             }
 

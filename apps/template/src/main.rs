@@ -1,5 +1,5 @@
 fn main() {
-    engine::launch(
+    engine::start(
         App,
         engine::LaunchSettings {
             window_title: "Spectral Engine - Template".to_string(),
@@ -14,7 +14,7 @@ pub struct App;
 impl engine::State for App {
     async fn update(
         &mut self,
-        _engine_context: &mut engine::LaunchContext,
+        _engine_context: &mut engine::EngineContext,
         ui_context: &engine::egui::Context,
     ) {
         engine::egui::Window::new("Template").show(ui_context, |ui| {

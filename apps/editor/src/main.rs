@@ -1,5 +1,5 @@
 fn main() {
-    engine::launch(
+    engine::start(
         Editor,
         engine::LaunchSettings {
             window_title: "Spectral Engine".to_string(),
@@ -14,7 +14,7 @@ pub struct Editor;
 impl engine::State for Editor {
     async fn update(
         &mut self,
-        _engine_context: &mut engine::LaunchContext,
+        _engine_context: &mut engine::EngineContext,
         ui_context: &engine::egui::Context,
     ) {
         #[cfg(not(target_arch = "wasm32"))]

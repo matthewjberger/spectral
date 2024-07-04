@@ -1,9 +1,11 @@
-#![allow(dead_code)]
-
-use async_std::future::timeout;
-use async_std::sync::{Arc, Mutex};
-use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures::stream::StreamExt;
+use async_std::{
+    future::timeout,
+    sync::{Arc, Mutex},
+};
+use futures::{
+    channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
+    stream::StreamExt,
+};
 use std::{collections::HashMap, time::Duration};
 
 pub type Subscriber<T> = UnboundedSender<T>;
@@ -11,6 +13,7 @@ pub type Subscriber<T> = UnboundedSender<T>;
 pub struct Broker<T> {
     subscribers: Arc<Mutex<HashMap<String, Vec<Subscriber<T>>>>>,
 }
+
 impl<T: Clone + Send + 'static> Default for Broker<T> {
     fn default() -> Self {
         Self {
@@ -55,7 +58,12 @@ impl<T: Clone + Send + 'static> Client<T> {
     }
 
     pub async fn subscribe(&self, topic: &str) {
-        self.broker.subscribe(topic, self.sender.clone()).await;
+        let sender = self.sender.clone();
+        self.broker.subscribe(topic, sender).await;
+    }
+
+    pub async fn publish(&self, topic: &str, msg: T) {
+        self.broker.publish(topic, msg).await;
     }
 
     pub async fn next(&self) -> Option<T> {
@@ -87,7 +95,8 @@ mod tests {
         client1.subscribe("topic1").await;
         client2.subscribe("topic1").await;
 
-        broker.publish("topic1", "message1").await;
+        client1.publish("topic1", "message1").await;
+        client2.publish("topic1", "message2").await;
 
         assert_eq!(client1.next().await.unwrap(), "message1");
         assert_eq!(client2.next().await.unwrap(), "message1");
@@ -105,7 +114,7 @@ mod tests {
         assert!(msg.is_none());
 
         // Test with a message published
-        broker.publish("topic1", "message1").await;
+        client.publish("topic1", "message1").await;
         let msg = client.try_next_message(Duration::from_secs(1)).await;
         assert_eq!(msg.unwrap(), "message1");
     }
