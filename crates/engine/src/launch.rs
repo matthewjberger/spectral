@@ -28,7 +28,7 @@ pub fn launch(state: impl State + 'static, settings: LaunchSettings) {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        window_builder = window_builder.with_title(&settings.window_title);
+        window_builder = window_builder.with_title(settings.window_title);
     }
 
     #[cfg(target_arch = "wasm32")]
