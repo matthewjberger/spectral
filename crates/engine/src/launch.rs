@@ -7,15 +7,26 @@ pub use web_time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-/// Data shared between engine and application layers
+#[derive(Default, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum EngineMessage {
+    #[default]
+    Empty,
+}
+
+pub type EngineBroker = crate::broker::Broker<EngineMessage>;
+
+#[allow(dead_code)]
+pub type EngineClient = crate::broker::Client<EngineMessage>;
+
 #[derive(Default)]
-pub struct Context {
+pub struct EngineContext {
+    pub broker: EngineBroker,
     pub world: crate::world::World,
 }
 
 #[async_trait::async_trait]
 pub trait State {
-    async fn update(&mut self, _engine_context: &mut Context, _ui_context: &egui::Context);
+    async fn update(&mut self, _engine_context: &mut EngineContext, _ui_context: &egui::Context);
 }
 
 #[derive(Default)]
@@ -96,7 +107,7 @@ async fn run_app(
 
     let mut renderer = crate::renderer::Renderer::new(window.clone(), width, height).await;
 
-    let mut app_context = Context::default();
+    let mut app_context = EngineContext::default();
 
     let mut last_render_time = Instant::now();
 

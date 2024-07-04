@@ -21,6 +21,8 @@ petgraph = { version = "0.6.4", features = ["serde-1"] }
 serde = { version = "1.0.197", features = ["derive"] }
 wgpu = { version = "0.19.4", default-features = false }
 async-trait = "0.1.80"
+async-std = { version = "1.12.0", features = ["attributes"] }
+futures = "0.3.30"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 egui-winit = "0.27.2"
