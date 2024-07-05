@@ -1,9 +1,8 @@
 mod renderer;
 
-mod broker;
-mod message;
 mod platform;
 
+pub mod message;
 pub mod world;
 
 pub use message::*;

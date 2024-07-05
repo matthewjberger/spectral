@@ -10,9 +10,8 @@ fn main() {
 #[derive(Default)]
 pub struct App;
 
-#[async_trait::async_trait]
 impl engine::State for App {
-    async fn update(
+    fn update(
         &mut self,
         _engine_context: &mut engine::EngineContext,
         ui_context: &engine::egui::Context,

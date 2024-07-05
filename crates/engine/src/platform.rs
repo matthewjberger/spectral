@@ -9,13 +9,12 @@ use wasm_bindgen::prelude::*;
 
 #[derive(Default)]
 pub struct EngineContext {
-    pub broker: crate::message::EngineBrokerHandle,
+    pub pending_messages: Vec<crate::EngineMessage>,
     pub world: crate::world::World,
 }
 
-#[async_trait::async_trait]
 pub trait State {
-    async fn update(&mut self, _engine_context: &mut EngineContext, _ui_context: &egui::Context);
+    fn update(&mut self, _engine_context: &mut EngineContext, _ui_context: &egui::Context);
 }
 
 #[derive(Default)]
@@ -100,17 +99,6 @@ async fn run(
 
     let mut last_render_time = Instant::now();
 
-    let broker_handle = engine_context.broker.clone();
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        async_std::task::spawn(crate::message::message_task(broker_handle));
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        wasm_bindgen_futures::spawn_local(crate::message::message_task(broker_handle));
-    }
-
     event_loop
         .run(move |event, elwt| {
             match event {
@@ -162,19 +150,16 @@ async fn run(
                             let gui_input = gui_state.take_egui_input(&window);
                             gui_state.egui_ctx().begin_frame(gui_input);
 
-                            #[cfg(not(target_arch = "wasm32"))]
-                            {
-                                pollster::block_on(
-                                    state.update(&mut engine_context, gui_state.egui_ctx()),
-                                );
-                            }
+                            state.update(&mut engine_context, gui_state.egui_ctx());
 
-                            #[cfg(target_arch = "wasm32")]
-                            {
-                                wasm_bindgen_futures::spawn_local(
-                                    state.update(&mut engine_context, gui_state.egui_ctx()),
-                                );
-                            }
+                            engine_context
+                                .pending_messages
+                                .drain(..)
+                                .for_each(|message| match message {
+                                    crate::EngineMessage::Empty => {
+                                        log::info!("Empty message received");
+                                    }
+                                });
 
                             let egui::FullOutput {
                                 textures_delta,

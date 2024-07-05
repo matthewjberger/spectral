@@ -1,6 +1,6 @@
 fn main() {
     engine::start(
-        Demo::default(),
+        Demo,
         engine::LaunchSettings {
             window_title: "Spectral Engine - Demo".to_string(),
         },
@@ -8,21 +8,14 @@ fn main() {
 }
 
 #[derive(Default)]
-pub struct Demo {
-    client: Option<engine::EngineClient>,
-}
+pub struct Demo;
 
-#[async_trait::async_trait]
 impl engine::State for Demo {
-    async fn update(
+    fn update(
         &mut self,
         engine_context: &mut engine::EngineContext,
         ui_context: &engine::egui::Context,
     ) {
-        if self.client.is_none() {
-            self.client = Some(engine::EngineClient::new(engine_context.broker.clone()));
-        }
-
         let mut messages = Vec::new();
         engine::egui::Window::new("Demo").show(ui_context, |ui| {
             ui.heading("Spectral Engine Demo App");
@@ -30,12 +23,8 @@ impl engine::State for Demo {
                 messages.push(engine::EngineMessage::Empty);
             }
         });
-        for message in messages.drain(..) {
-            if let Some(client) = self.client.as_ref() {
-                client
-                    .publish(&engine::EngineMessage::empty_topic(), message)
-                    .await;
-            }
-        }
+        messages.drain(..).for_each(|message| {
+            engine_context.pending_messages.push(message);
+        });
     }
 }
