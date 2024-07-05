@@ -13,17 +13,19 @@ pub enum EngineMessage {
 pub type EngineBrokerHandle = Arc<crate::broker::Broker<EngineMessage>>;
 
 pub type EngineClient = crate::broker::Client<EngineMessage>;
-// pub type EngineClientHandle = Arc<crate::broker::Client<EngineMessage>>;
+pub type EngineClientHandle = crate::broker::ClientHandle<EngineMessage>;
 
 /// Listens for and resolves engine messages
 pub async fn message_task(broker: EngineBrokerHandle) {
-    let client = EngineClient::new(broker.clone());
-    client.subscribe(&EngineMessage::empty_topic()).await;
+    let mut client = EngineClient::new();
+    broker.subscribe(&EngineMessage::empty_topic(), &mut client);
     loop {
-        while let Some(message) = client.next().await {
-            match message {
-                EngineMessage::Empty => {
-                    log::info!("Empty message received");
+        if let Ok(mut client) = client.write() {
+            while let Some(message) = client.next_message() {
+                match message {
+                    EngineMessage::Empty => {
+                        log::info!("Empty message received");
+                    }
                 }
             }
         }

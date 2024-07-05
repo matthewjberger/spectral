@@ -12,15 +12,14 @@ pub struct Demo {
     client: Option<engine::EngineClient>,
 }
 
-#[async_trait::async_trait]
 impl engine::State for Demo {
-    async fn update(
+    fn update(
         &mut self,
         engine_context: &mut engine::EngineContext,
         ui_context: &engine::egui::Context,
     ) {
         if self.client.is_none() {
-            self.client = Some(engine::EngineClient::new(engine_context.broker.clone()));
+            // self.client = Some(engine::EngineClient::new(engine_context.broker.clone()));
         }
 
         let mut messages = Vec::new();
@@ -32,9 +31,9 @@ impl engine::State for Demo {
         });
         for message in messages.drain(..) {
             if let Some(client) = self.client.as_ref() {
-                client
-                    .publish(&engine::EngineMessage::empty_topic(), message)
-                    .await;
+                // client
+                //     .publish(&engine::EngineMessage::empty_topic(), message)
+                //     .await;
             }
         }
     }

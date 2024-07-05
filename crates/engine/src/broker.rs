@@ -1,121 +1,264 @@
-use async_std::{
-    future::timeout,
-    sync::{Arc, Mutex},
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::{Arc, RwLock, Weak},
 };
-use futures::{
-    channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
-    stream::StreamExt,
-};
-use std::{collections::HashMap, time::Duration};
+use uuid::Uuid;
 
-pub type Subscriber<T> = UnboundedSender<T>;
-
-pub struct Broker<T> {
-    subscribers: Arc<Mutex<HashMap<String, Vec<Subscriber<T>>>>>,
+#[derive(Default)]
+pub struct Broker<T: Clone> {
+    subscribers: Arc<RwLock<HashMap<String, Vec<Weak<RwLock<Client<T>>>>>>>,
 }
 
-impl<T: Clone + Send + 'static> Default for Broker<T> {
-    fn default() -> Self {
+impl<T: Clone> Broker<T> {
+    pub fn new() -> Self {
         Self {
-            subscribers: Arc::new(Mutex::new(HashMap::new())),
+            subscribers: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-}
 
-impl<T: Clone + Send + 'static> Broker<T> {
-    pub async fn subscribe(&self, topic: &str, tx: Subscriber<T>) {
-        let mut subscribers = self.subscribers.lock().await;
-        subscribers
+    pub fn subscribe(&self, topic: &str, client: &Arc<RwLock<Client<T>>>) {
+        let client_weak = Arc::downgrade(client);
+        self.subscribers
+            .write()
+            .unwrap()
             .entry(topic.to_string())
-            .or_insert_with(Vec::new)
-            .push(tx);
+            .or_default()
+            .push(client_weak);
     }
 
-    pub async fn publish(&self, topic: &str, msg: T) {
-        let subscribers = self.subscribers.lock().await;
-        if let Some(subs) = subscribers.get(topic) {
-            for sub in subs {
-                let _ = sub.unbounded_send(msg.clone());
+    pub fn unsubscribe(&self, topic: &str, client_id: Uuid) -> Result<(), &'static str> {
+        let mut subscribers = self.subscribers.write().unwrap();
+        if let Some(subscribers) = subscribers.get_mut(topic) {
+            subscribers.retain(|subscriber| {
+                if let Some(subscriber) = subscriber.upgrade() {
+                    subscriber.read().unwrap().id() != client_id
+                } else {
+                    false
+                }
+            });
+            Ok(())
+        } else {
+            Err("TopicNotFound")
+        }
+    }
+
+    pub fn publish(&self, topic: &str, message: T) {
+        let mut subscribers = self.subscribers.write().unwrap();
+        if let Some(subscribers) = subscribers.get_mut(topic) {
+            subscribers.retain(|subscriber_weak| {
+                if let Some(subscriber_strong) = subscriber_weak.upgrade() {
+                    let mut subscriber = subscriber_strong.write().unwrap();
+                    let ring_buffer_size = subscriber.ring_buffer_size();
+                    if subscriber.event_queue.len() == ring_buffer_size {
+                        subscriber.event_queue.pop_front();
+                    }
+                    subscriber.event_queue.push_back(message.clone());
+                    true
+                } else {
+                    false
+                }
+            });
+            if subscribers.is_empty() {
+                self.subscribers.write().unwrap().remove(topic);
             }
         }
     }
 }
 
-pub struct Client<T> {
-    broker: Arc<Broker<T>>,
-    receiver: Arc<Mutex<UnboundedReceiver<T>>>,
-    sender: Subscriber<T>,
+pub type ClientHandle<T> = Arc<RwLock<Client<T>>>;
+
+pub struct Client<T: Clone> {
+    id: Uuid,
+    event_queue: VecDeque<T>,
+    ring_buffer_size: usize,
 }
 
-impl<T: Clone + Send + 'static> Client<T> {
-    pub fn new(broker: Arc<Broker<T>>) -> Self {
-        let (tx, rx) = unbounded();
+impl<T: Clone> Default for Client<T> {
+    fn default() -> Self {
         Self {
-            broker,
-            receiver: Arc::new(Mutex::new(rx)),
-            sender: tx,
+            id: Uuid::new_v4(),
+            event_queue: VecDeque::new(),
+            ring_buffer_size: 100,
         }
     }
+}
 
-    pub async fn subscribe(&self, topic: &str) {
-        let sender = self.sender.clone();
-        self.broker.subscribe(topic, sender).await;
+impl<T: Clone> Client<T> {
+    pub fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self::default()))
     }
 
-    pub async fn publish(&self, topic: &str, msg: T) {
-        self.broker.publish(topic, msg).await;
+    pub fn with_ring_buffer_size(size: usize) -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self {
+            ring_buffer_size: size,
+            ..Default::default()
+        }))
     }
 
-    pub async fn next(&self) -> Option<T> {
-        let mut receiver = self.receiver.lock().await;
-        receiver.next().await
+    pub fn id(&self) -> Uuid {
+        self.id
     }
 
-    pub async fn try_next_message(&self, duration: Duration) -> Option<T> {
-        let mut receiver = self.receiver.lock().await;
-        match timeout(duration, receiver.next()).await {
-            Ok(Some(msg)) => Some(msg),
-            Ok(None) | Err(_) => None,
-        }
+    pub fn ring_buffer_size(&self) -> usize {
+        self.ring_buffer_size
+    }
+
+    pub fn next_message(&mut self) -> Option<T> {
+        self.event_queue.pop_front()
+    }
+
+    pub fn peek_message(&self) -> Option<T> {
+        self.event_queue.front().cloned()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::time::Duration;
+    use super::{Broker, Client};
 
-    #[async_std::test]
-    async fn test_pubsub() {
-        let broker = Arc::new(Broker::default());
-
-        let client1 = Client::new(broker.clone());
-        let client2 = Client::new(broker.clone());
-
-        client1.subscribe("topic1").await;
-        client2.subscribe("topic1").await;
-
-        client1.publish("topic1", "message1").await;
-        client2.publish("topic1", "message2").await;
-
-        assert_eq!(client1.next().await.unwrap(), "message1");
-        assert_eq!(client2.next().await.unwrap(), "message1");
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct Message {
+        content: String,
     }
 
-    #[async_std::test]
-    async fn test_try_next_message() {
-        let broker = Arc::new(Broker::default());
-        let client = Client::new(broker.clone());
+    impl Message {
+        pub fn new(content: &str) -> Self {
+            Self {
+                content: content.to_string(),
+            }
+        }
+    }
 
-        client.subscribe("topic1").await;
+    #[test]
+    fn test_single_client_receive_message() {
+        let broker = Broker::new();
+        let client = Client::new();
+        broker.subscribe("topic1", &client);
+        broker.publish("topic1", Message::new("hello world"));
+        assert_eq!(
+            client.write().unwrap().next_message().unwrap().content,
+            "hello world"
+        );
+    }
 
-        // Test timeout with no message published
-        let msg = client.try_next_message(Duration::from_secs(1)).await;
-        assert!(msg.is_none());
+    #[test]
+    fn test_multiple_subscribers_receive_message() {
+        let broker = Broker::new();
+        let client1 = Client::new();
+        let client2 = Client::new();
+        broker.subscribe("topic1", &client1);
+        broker.subscribe("topic1", &client2);
+        broker.publish("topic1", Message::new("hello world"));
+        assert_eq!(
+            client1.write().unwrap().next_message().unwrap().content,
+            "hello world"
+        );
+        assert_eq!(
+            client2.write().unwrap().next_message().unwrap().content,
+            "hello world"
+        );
+    }
 
-        // Test with a message published
-        client.publish("topic1", "message1").await;
-        let msg = client.try_next_message(Duration::from_secs(1)).await;
-        assert_eq!(msg.unwrap(), "message1");
+    #[test]
+    fn test_unsubscribe() {
+        let broker = Broker::new();
+        let client1 = Client::new();
+        let client2 = Client::new();
+        broker.subscribe("topic1", &client1);
+        broker.subscribe("topic1", &client2);
+        broker
+            .unsubscribe("topic1", client1.read().unwrap().id())
+            .unwrap();
+        broker.publish("topic1", Message::new("hello world"));
+        assert_eq!(client1.write().unwrap().next_message(), None);
+        assert_eq!(
+            client2.write().unwrap().next_message().unwrap().content,
+            "hello world"
+        );
+    }
+
+    #[test]
+    fn test_multiple_topics() {
+        let broker = Broker::new();
+        let client = Client::new();
+        broker.subscribe("topic1", &client);
+        broker.subscribe("topic2", &client);
+        broker.publish("topic1", Message::new("hello topic1"));
+        broker.publish("topic2", Message::new("hello topic2"));
+        assert_eq!(
+            client.write().unwrap().next_message().unwrap().content,
+            "hello topic1"
+        );
+        assert_eq!(
+            client.write().unwrap().next_message().unwrap().content,
+            "hello topic2"
+        );
+    }
+
+    #[test]
+    fn test_ring_buffer() {
+        let broker = Broker::new();
+        let client = Client::with_ring_buffer_size(2);
+        broker.subscribe("topic1", &client);
+        broker.publish("topic1", Message::new("message1"));
+        broker.publish("topic1", Message::new("message2"));
+        broker.publish("topic1", Message::new("message3"));
+        assert_eq!(
+            client.write().unwrap().next_message().unwrap().content,
+            "message2"
+        );
+        assert_eq!(
+            client.write().unwrap().next_message().unwrap().content,
+            "message3"
+        );
+    }
+
+    #[test]
+    fn test_peek_message() {
+        let broker = Broker::new();
+        let client = Client::new();
+        broker.subscribe("topic1", &client);
+        broker.publish("topic1", Message::new("peek this"));
+
+        assert_eq!(
+            client.read().unwrap().peek_message().unwrap().content,
+            "peek this"
+        );
+
+        assert_eq!(
+            client.write().unwrap().next_message().unwrap().content,
+            "peek this"
+        );
+
+        assert!(client.write().unwrap().next_message().is_none());
+    }
+
+    #[test]
+    fn test_weak_reference_cleanup() {
+        let broker = Broker::new();
+
+        {
+            let client = Client::new();
+            broker.subscribe("topic1", &client);
+
+            assert!(broker.subscribers.read().unwrap().contains_key("topic1"));
+
+            broker.publish("topic1", Message::new("Test"));
+
+            assert_eq!(
+                client.write().unwrap().next_message().unwrap().content,
+                "Test"
+            );
+        }
+
+        if let Some(subscribers) = broker.subscribers.read().unwrap().get("topic1") {
+            assert!(subscribers[0].upgrade().is_none());
+        } else {
+            panic!("Topic 'topic1' should still exist at this point.");
+        }
+
+        broker.publish("topic1", Message::new("Test 2"));
+
+        assert!(!broker.subscribers.read().unwrap().contains_key("topic1"));
     }
 }
